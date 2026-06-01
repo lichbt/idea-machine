@@ -12,7 +12,7 @@ from datetime import datetime
 
 import config
 from db.models import RawSignal, get_session
-from scrapers import appstore, appsumo, hackernews, producthunt, reddit
+from scrapers import appstore, appsumo, hackernews, playstore, producthunt, reddit
 from utils.deduplicator import content_hash, most_similar
 
 log = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ _SCRAPERS = {
     "hackernews": hackernews.scrape,
     "producthunt": producthunt.scrape,
     "appstore": appstore.scrape,
+    "playstore": playstore.scrape,
     "appsumo": appsumo.scrape,
 }
 

@@ -17,7 +17,7 @@ SIMILARITY_THRESHOLD = 0.85
 # ── Caps ──────────────────────────────────────────────────────────────────
 MAX_IDEAS_PER_RUN = 20
 MAX_SWOT_PER_RUN = 5
-MIN_SIGNAL_CLUSTER = 5  # fewer mentions than this in a cluster => insufficient
+MIN_SIGNAL_CLUSTER = 3  # fewer mentions than this in a cluster => insufficient
 
 # ── LLM backends ──────────────────────────────────────────────────────────
 # Primary: Claude CLI (`claude -p`). Fallback: OpenRouter API.
@@ -76,6 +76,21 @@ APPSTORE_APPS_PER_TERM = 5
 APPSTORE_REVIEWS_PER_APP = 10
 APPSTORE_MAX_RATING = 2  # only keep reviews at or below this star rating
 
+# Google Play: Android mirror of the App Store source — find apps per search
+# term, pull low-star reviews (complaints). Uses google-play-scraper, no key.
+PLAYSTORE_COUNTRY = "us"
+PLAYSTORE_SEARCH_TERMS = [
+    "project management", "productivity", "time tracking",
+    "invoicing", "note taking", "habit tracker",
+]
+PLAYSTORE_APPS_PER_TERM = 5
+PLAYSTORE_REVIEWS_PER_APP = 10
+PLAYSTORE_MAX_RATING = 2  # only keep reviews at or below this star rating
+
+# Product Hunt: recent launches + their comments (needs PRODUCTHUNT_API_TOKEN).
+PRODUCTHUNT_POSTS = 20
+PRODUCTHUNT_COMMENTS_PER_POST = 10
+
 # AppSumo: scrape public marketplace listings (name + pitch + tags).
 APPSUMO_BROWSE_URLS = [
     "https://appsumo.com/browse/",
@@ -129,6 +144,12 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID", "")
 REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", "")
 REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "idea-machine/0.1")
+# Optional: a "script" Reddit app authenticates via the password grant. Set
+# these to your Reddit account's username/password to use a script app; leave
+# unset to use application-only (read-only) OAuth.
+REDDIT_USERNAME = os.getenv("REDDIT_USERNAME", "")
+REDDIT_PASSWORD = os.getenv("REDDIT_PASSWORD", "")
+PRODUCTHUNT_API_TOKEN = os.getenv("PRODUCTHUNT_API_TOKEN", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 

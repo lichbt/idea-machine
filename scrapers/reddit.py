@@ -28,11 +28,19 @@ def _client():
     global _reddit
     if _reddit is None:
         import praw
-        _reddit = praw.Reddit(
+        kwargs = dict(
             client_id=config.REDDIT_CLIENT_ID,
             client_secret=config.REDDIT_CLIENT_SECRET,
             user_agent=config.REDDIT_USER_AGENT,
         )
+        # A "script" app authenticates via the password grant: if a username +
+        # password are configured, pass them. Without them praw uses
+        # application-only ("userless") OAuth, which works for read-only search
+        # but fails on some script-type apps.
+        if config.REDDIT_USERNAME and config.REDDIT_PASSWORD:
+            kwargs["username"] = config.REDDIT_USERNAME
+            kwargs["password"] = config.REDDIT_PASSWORD
+        _reddit = praw.Reddit(**kwargs)
         _reddit.read_only = True
     return _reddit
 
