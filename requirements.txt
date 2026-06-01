@@ -1,0 +1,9 @@
+sqlalchemy>=2.0.0
+praw>=7.7.0
+requests>=2.31.0
+pytrends>=4.9.0
+python-telegram-bot>=21.0
+sentence-transformers>=2.7.0
+python-dotenv>=1.0.0
+schedule>=1.2.0
+app-store-scraper>=0.3.5
