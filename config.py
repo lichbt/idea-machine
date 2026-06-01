@@ -31,6 +31,18 @@ CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "180"))
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
 
+# Generic OpenAI-compatible endpoint (local gateway / proxy / router, e.g. a
+# self-hosted model server on localhost). When LLM_API_KEY + LLM_BASE_URL are
+# set they take precedence over OPENROUTER_*. LLM_BACKEND controls ordering:
+#   auto   -> use the OpenAI-compatible endpoint if configured, else the Claude
+#             CLI; whichever isn't primary acts as the fallback.
+#   openai -> only the OpenAI-compatible endpoint.
+#   cli    -> only the Claude CLI.
+LLM_BACKEND = os.getenv("LLM_BACKEND", "auto").lower()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")  # e.g. http://localhost:20128/v1
+LLM_MODEL = os.getenv("LLM_MODEL", "")
+
 # ── SWOT scoring weights (must sum to 1.0) ────────────────────────────────
 SWOT_WEIGHTS = {
     "strengths": 0.25,
