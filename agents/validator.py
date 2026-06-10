@@ -13,6 +13,7 @@ from datetime import datetime
 import config
 from db.models import RawSignal, ValidatedIdea, get_session
 from utils.claude_caller import ClaudeJSONError, call_json
+from utils.concurrency import pmap
 
 log = logging.getLogger(__name__)
 
@@ -69,43 +70,60 @@ Return JSON with this exact shape:
 }}"""
 
 
-def _score_signal(signal):
-    prompt = _PROMPT.format(
-        source=signal.source,
-        url=signal.url or "",
-        content=(signal.content or "")[:4000],
-    )
+def _score_fields(source, url, content):
+    prompt = _PROMPT.format(source=source, url=url or "",
+                            content=(content or "")[:4000])
     return call_json(prompt, system=_SYSTEM)
+
+
+def _score_signal(signal):
+    return _score_fields(signal.source, signal.url, signal.content)
 
 
 def run(threshold=None, swot_cap=None):
     """Validate all pending signals. Returns list of ValidatedIdea ids that
-    passed and are selected for SWOT (capped, highest score first)."""
+    passed and are selected for SWOT (capped, highest score first).
+
+    The per-signal LLM scoring runs concurrently; the DB writes stay on the main
+    thread (read pending -> score in parallel -> write sequentially)."""
     threshold = config.VALIDATION_THRESHOLD if threshold is None else threshold
     swot_cap = config.MAX_SWOT_PER_RUN if swot_cap is None else swot_cap
 
     session = get_session()
+    try:
+        items = [(s.id, s.source, s.url, s.content)
+                 for s in session.query(RawSignal).filter_by(status="pending").all()]
+    finally:
+        session.close()
+    log.info("Validator scoring %d pending signals", len(items))
+
+    def _score(item):
+        sid, source, url, content = item
+        try:
+            return _score_fields(source, url, content)
+        except ClaudeJSONError as e:
+            log.warning("Validation failed for signal %d: %s", sid, e)
+            return None
+
+    results = pmap(_score, items)  # aligned with items; None = failed
+
+    session = get_session()
     passed_records = []  # (total_score, validated_idea_id)
     try:
-        pending = session.query(RawSignal).filter_by(status="pending").all()
-        log.info("Validator scoring %d pending signals", len(pending))
-
-        for signal in pending:
-            try:
-                result = _score_signal(signal)
-            except ClaudeJSONError as e:
-                log.warning("Validation failed for signal %d: %s", signal.id, e)
+        for (sid, _src, _url, _content), result in zip(items, results):
+            signal = session.query(RawSignal).get(sid)
+            if signal is None:
+                continue
+            if result is None:
                 signal.status = "validation_failed"
                 continue
-
             scores = result.get("scores", {})
             total = sum(int(scores.get(k, 0)) for k in
                         ("pain_intensity", "market_gap",
                          "buildability", "monetizability"))
             passed = total >= threshold
-
             vi = ValidatedIdea(
-                signal_id=signal.id,
+                signal_id=sid,
                 pain_point_title=result.get("pain_point_title", "Untitled"),
                 search_keyword=result.get("search_keyword", ""),
                 app_search_queries=result.get("app_search_queries", []),
@@ -116,11 +134,9 @@ def run(threshold=None, swot_cap=None):
             )
             session.add(vi)
             session.flush()  # assign vi.id
-
             signal.status = "validated" if passed else "insufficient"
             if passed:
                 passed_records.append((total, vi.id))
-
         session.commit()
     finally:
         session.close()

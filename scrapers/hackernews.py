@@ -45,6 +45,7 @@ def scrape(query_terms=None, hits_per_query=30):
                 "source": "hackernews",
                 "url": url,
                 "content": content,
+                "created_at": hit.get("created_at_i"),  # unix seconds, for recency
             })
 
     log.info("Hacker News scraped %d signals", len(signals))

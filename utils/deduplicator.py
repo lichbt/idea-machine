@@ -56,3 +56,26 @@ def is_duplicate(text, candidates, threshold=None):
     threshold = config.SIMILARITY_THRESHOLD if threshold is None else threshold
     idx, score = most_similar(text, candidates)
     return (idx is not None and score > threshold), idx, score
+
+
+def top_similar(text, candidates, k=5):
+    """Return the top-k [(index, score)] most similar candidates, best first.
+
+    Like most_similar but returns several neighbours (for showing the LLM the
+    nearest existing concepts). Empty list if candidates is empty or the model
+    is unavailable (degrades gracefully, never raises).
+    """
+    if not candidates:
+        return []
+    try:
+        from sentence_transformers import util
+        model = _get_model()
+        query_emb = model.encode(text, convert_to_tensor=True)
+        cand_emb = model.encode(candidates, convert_to_tensor=True)
+        scores = util.cos_sim(query_emb, cand_emb)[0]
+        ranked = sorted(((int(i), float(s)) for i, s in enumerate(scores)),
+                        key=lambda p: p[1], reverse=True)
+        return ranked[:k]
+    except Exception as e:
+        log.warning("top_similar check failed, skipping: %s", e)
+        return []

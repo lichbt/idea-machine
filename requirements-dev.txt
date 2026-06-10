@@ -1,0 +1,2 @@
+# Dev/test dependencies (install: .venv/bin/python -m pip install -r requirements-dev.txt)
+pytest>=8

@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    event,
     inspect,
     text,
 )
@@ -81,6 +82,7 @@ class SwotAnalysis(Base):
     verdict_reasoning = Column(Text)
     biggest_risk = Column(Text)
     biggest_opportunity = Column(Text)
+    challenge = Column(JSON)  # adversarial red-team rebuttal + any verdict downgrade
     synthesized_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -97,6 +99,12 @@ class Idea(Base):
     build_weeks = Column(Integer)
     similarity_flag = Column(Boolean, default=False)
     similar_idea_id = Column(Integer)
+    # Opportunity judge (auto-pilot go/no-go scorer)
+    opportunity_score = Column(Integer)          # 0-100 rubric score
+    opportunity_recommendation = Column(String)  # PROCEED / ITERATE / DROP
+    opportunity_scores = Column(JSON)            # per-criterion subscores
+    opportunity_reasoning = Column(Text)
+    build_brief = Column(JSON)                   # MVP build brief (--brief)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -108,6 +116,15 @@ def get_engine():
     global _engine
     if _engine is None:
         _engine = create_engine(config.DATABASE_URL, future=True)
+        # WAL + a generous busy timeout let several connections (the concurrent
+        # LLM workers' sessions) read/write without "database is locked" errors.
+        if config.DATABASE_URL.startswith("sqlite"):
+            @event.listens_for(_engine, "connect")
+            def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=30000")
+                cur.close()
     return _engine
 
 
@@ -120,6 +137,14 @@ _ADDED_COLUMNS = {
         "market_analysis": "JSON",
         "demand_score": "INTEGER",
         "demand_data": "JSON",
+        "challenge": "JSON",
+    },
+    "ideas": {
+        "opportunity_score": "INTEGER",
+        "opportunity_recommendation": "TEXT",
+        "opportunity_scores": "JSON",
+        "opportunity_reasoning": "TEXT",
+        "build_brief": "JSON",
     },
 }
 

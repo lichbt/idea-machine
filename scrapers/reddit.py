@@ -1,11 +1,16 @@
 """Reddit scraper.
 
-Searches configured subreddits for pain-point phrasing. Uses praw OAuth when
-credentials are configured, otherwise falls back to Reddit's public RSS feeds
-(no auth, no API key — Reddit closed self-service API access in late 2025, but
-the .rss endpoints still serve search results). On any auth/network failure it
-logs and returns whatever it has collected so far — never raises, so the
-pipeline continues with other sources.
+Searches configured subreddits for pain-point phrasing. Method priority:
+  1. praw OAuth     — if REDDIT_CLIENT_ID/SECRET are set (dormant: Reddit closed
+                      self-service API app creation, so creds are unobtainable now).
+  2. Serper/Google  — `site:reddit.com/r/<sub>` via our existing SERPER key. The
+                      practical primary: Reddit now 403s the no-auth .json
+                      endpoints, but Google indexes Reddit deeply, so this is far
+                      better targeted than RSS (full titles + pain-dense snippets).
+  3. public RSS     — last-resort .rss feeds (thin: capped, HTML-truncated).
+
+On any auth/network failure it logs and returns whatever it collected — never
+raises, so the pipeline continues with other sources.
 """
 import html
 import logging
@@ -18,6 +23,15 @@ import config
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _TAG_RE = re.compile(r"<[^>]+>")
+# Strip Google/Reddit title decorations. Leading: "r/SaaS on Reddit: ...".
+# Trailing: "... : r/SaaS", "... — r/X - Reddit", "... - Reddit".
+_TITLE_LEAD_RE = re.compile(r"^\s*r/\w+ on Reddit:\s*", re.IGNORECASE)
+_TITLE_NOISE_RE = re.compile(r"\s*[-—:]\s*r/\w+(\s*[-—]\s*Reddit)?\s*$|\s*[-—]\s*Reddit\s*$",
+                             re.IGNORECASE)
+
+
+def _clean_title(title):
+    return _TITLE_NOISE_RE.sub("", _TITLE_LEAD_RE.sub("", title or "")).strip()
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +85,40 @@ def _scrape_praw(subreddits, query_terms, limit):
                 # Token expiry, rate limit, subreddit errors: skip and continue.
                 log.warning("Reddit search failed (r/%s, '%s'): %s", sub, term, e)
                 continue
+    return signals
+
+
+def _scrape_search(subreddits, query_terms, results_per_sub):
+    """Search Reddit via the web-search backend (Serper or Brave). Reddit closed
+    its API and now 403s the .json endpoints, but Google/Brave index Reddit deeply,
+    so `site:reddit.com/r/<sub>` with the pain phrases OR'd surfaces the most
+    relevant complaint threads — richer and better-targeted than the .rss feed.
+
+    Returns title + snippet (the snippet is the pain-dense excerpt). Resilient: a
+    failed query is logged and skipped, never raises."""
+    from utils.search import web_search
+
+    or_terms = " OR ".join(f'"{t}"' for t in query_terms)
+    signals = []
+    seen = set()
+    for sub in subreddits:
+        q = f"site:reddit.com/r/{sub} ({or_terms})"
+        try:
+            hits = web_search(q, num=results_per_sub)
+        except Exception as e:  # noqa: BLE001 — never break discovery
+            log.warning("Reddit search failed (r/%s): %s", sub, e)
+            continue
+        for item in hits:
+            link = item.get("link") or ""
+            if "reddit.com" not in link or link in seen:
+                continue
+            seen.add(link)
+            title = _clean_title(item.get("title"))
+            snippet = (item.get("snippet") or "").strip()
+            content = f"{title}\n\n{snippet}".strip()
+            if content:
+                signals.append({"source": "reddit", "url": link,
+                                "content": content})
     return signals
 
 
@@ -129,10 +177,19 @@ def scrape(subreddits=None, query_terms=None, limit_per_query=None):
     query_terms = query_terms or config.REDDIT_QUERY_TERMS
     limit = limit_per_query or config.REDDIT_POSTS_PER_QUERY
 
+    # Method priority: PRAW OAuth (if creds) -> Serper/Google search (if key) ->
+    # public RSS. Serper is the practical primary now that Reddit closed the API
+    # and 403s the .json endpoints (self-service app creation also disabled).
     if config.REDDIT_CLIENT_ID and config.REDDIT_CLIENT_SECRET:
         signals = _scrape_praw(subreddits, query_terms, limit)
+    elif config.REDDIT_USE_SERPER and (config.SERPER_API_KEY or config.BRAVE_API_KEY):
+        signals = _scrape_search(subreddits, query_terms,
+                                 config.REDDIT_SEARCH_RESULTS)
+        if not signals:  # search empty/blocked -> fall back to RSS
+            log.info("Reddit web search returned nothing; falling back to RSS")
+            signals = _scrape_rss(subreddits, query_terms, limit)
     else:
-        log.info("Reddit credentials unset; using public RSS feeds")
+        log.info("Reddit credentials/search key unset; using public RSS feeds")
         signals = _scrape_rss(subreddits, query_terms, limit)
 
     log.info("Reddit scraped %d signals", len(signals))

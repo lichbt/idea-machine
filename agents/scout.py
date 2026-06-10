@@ -12,8 +12,19 @@ from datetime import datetime
 
 import config
 from db.models import RawSignal, get_session
-from scrapers import appstore, appsumo, hackernews, playstore, producthunt, reddit
+from scrapers import (
+    appstore,
+    appsumo,
+    github,
+    hackernews,
+    playstore,
+    producthunt,
+    reddit,
+    trustpilot,
+)
 from utils.deduplicator import content_hash, most_similar
+from utils.pain import pain_score
+from utils.ranking import discovery_score
 
 log = logging.getLogger(__name__)
 
@@ -24,17 +35,26 @@ _SCRAPERS = {
     "appstore": appstore.scrape,
     "playstore": playstore.scrape,
     "appsumo": appsumo.scrape,
+    "github": github.scrape,
+    "trustpilot": trustpilot.scrape,
 }
 
 
-def _gather(sources):
+# Scrapers whose search terms the feedback seed planner can override.
+_SEEDED_SCRAPERS = ("appstore", "playstore")
+
+
+def _gather(sources, seed_terms=None):
     signals = []
     for name in sources:
         fn = _SCRAPERS.get(name)
         if not fn:
             continue
         try:
-            signals.extend(fn())
+            if seed_terms and name in _SEEDED_SCRAPERS:
+                signals.extend(fn(search_terms=seed_terms))
+            else:
+                signals.extend(fn())
         except Exception as e:  # belt-and-suspenders; scrapers already guard
             log.error("Scraper '%s' raised, skipping: %s", name, e)
     return signals
@@ -93,21 +113,34 @@ def _cluster(signals, min_size):
             if float(sim[i][j]) > config.SIMILARITY_THRESHOLD:
                 members.append(j)
                 assigned[j] = True
+        rep = max(members, key=lambda k: len(signals[k]["content"]))
         if len(members) >= min_size:
-            rep = max(members, key=lambda k: len(signals[k]["content"]))
             representatives.append(signals[rep])
         else:
-            log.info("insufficient_signal: cluster of %d (<%d) dropped",
-                     len(members), min_size)
+            # Novelty rescue: a rare but high-pain signal is exactly the kind of
+            # underserved opportunity the popularity filter would otherwise drop.
+            ps = pain_score(signals[rep]["content"])
+            if ps >= config.PAIN_KEEP_THRESHOLD:
+                signals[rep]["pain_score"] = ps
+                representatives.append(signals[rep])
+                log.info("novelty_rescue: cluster of %d kept (pain=%d)",
+                         len(members), ps)
+            else:
+                log.info("insufficient_signal: cluster of %d (<%d) dropped (pain=%d)",
+                         len(members), min_size, ps)
     return representatives
 
 
 def _interleave_by_source(signals, cap):
     """Round-robin across sources so the cap doesn't starve later sources.
-    Preserves per-source order; takes one from each source in turn until cap."""
+    Within each source the strongest signals (pain + willingness-to-pay +
+    recency) go first, so when the cap bites it keeps the best, not an arbitrary
+    slice."""
     buckets = {}
     for s in signals:
         buckets.setdefault(s.get("source"), []).append(s)
+    for src in buckets:
+        buckets[src].sort(key=discovery_score, reverse=True)
     out = []
     while len(out) < cap and any(buckets.values()):
         for src in list(buckets.keys()):
@@ -118,18 +151,60 @@ def _interleave_by_source(signals, cap):
     return out
 
 
-def run(sources=None, min_cluster=None, cap=None):
-    """Run the Scout. Returns the number of new pending signals written."""
+def run(sources=None, min_cluster=None, cap=None, seed_terms=None):
+    """Run the Scout. Returns the number of new pending signals written.
+
+    seed_terms overrides the app-store search categories. When None and
+    config.FEEDBACK_SEEDS is on, the seed planner generates fresh categories
+    from verdict history (adaptive discovery); otherwise the scrapers use their
+    static config lists.
+    """
     sources = sources or list(_SCRAPERS.keys())
     min_cluster = config.MIN_SIGNAL_CLUSTER if min_cluster is None else min_cluster
     cap = config.MAX_IDEAS_PER_RUN if cap is None else cap
 
-    raw = _gather(sources)
+    if seed_terms is None and config.FEEDBACK_SEEDS:
+        try:
+            from agents.seed_planner import plan_seeds
+            seed_terms = plan_seeds(config.FEEDBACK_SEED_COUNT,
+                                    config.APPSTORE_SEARCH_TERMS)
+            log.info("Feedback seeds (%d): %s", len(seed_terms), seed_terms)
+        except Exception as e:  # noqa: BLE001 — never block discovery
+            log.warning("Seed planning failed (%s); using static terms", e)
+            seed_terms = None
+
+    raw = _gather(sources, seed_terms=seed_terms)
     log.info("Scout gathered %d raw signals from %s", len(raw), sources)
+
+    # Replace per-app store reviews with cross-app CATEGORY pains (a pain shared
+    # by many apps in a category = a real gap, not one app's bug).
+    if config.CATEGORY_PAIN_SYNTHESIS:
+        try:
+            from agents.category_pain import synthesize as synth_category_pains
+            before = len(raw)
+            raw = synth_category_pains(raw)
+            log.info("Category-pain synthesis: %d signals -> %d", before, len(raw))
+        except Exception as e:  # noqa: BLE001 — never block discovery
+            log.warning("Category-pain synthesis skipped (%s)", e)
 
     deduped = _dedup_exact(raw)
     clustered = _cluster(deduped, min_cluster)
     selected = _interleave_by_source(clustered, cap)
+
+    # Distill the final selection into crisp pain statements (one batched LLM
+    # call). Bounded to <= cap signals and degrades gracefully to raw content.
+    if config.CLUSTER_LABELING and selected:
+        from utils.labeler import label_clusters
+        selected = label_clusters(selected)
+
+    # Cross-run pain memory: drop pains already evaluated in past runs, so each
+    # run explores new ground (compares the crisp labeled pain to history).
+    if config.PAIN_MEMORY and selected:
+        from utils.pain_memory import filter_novel
+        selected, dropped = filter_novel(selected)
+        if dropped:
+            log.info("Pain memory: dropped %d signal(s) matching already-"
+                     "evaluated pains", dropped)
 
     session = get_session()
     written = 0

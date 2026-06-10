@@ -9,10 +9,46 @@ missing google-play-scraper package degrades to an empty result — never raises
 so the pipeline continues with other sources.
 """
 import logging
+import math
+import re
 
 import config
 
 log = logging.getLogger(__name__)
+
+
+def _installs_to_int(installs):
+    """Parse a Play install string like '1,000,000+' into an int (0 if absent)."""
+    digits = re.sub(r"[^0-9]", "", str(installs or ""))
+    return int(digits) if digits else 0
+
+
+def _avg_to_float(avg):
+    try:
+        return float(avg)
+    except (TypeError, ValueError):
+        return None
+
+
+def _gap_score(installs, avg):
+    """Rank apps by 'big market, failing incumbent': a proven install base (past
+    the floor) with a low average rating (users dissatisfied) = a real gap. The
+    install term is LOG-scaled so dissatisfaction dominates — otherwise a beloved
+    leader with millions of installs would always outrank a failing incumbent on
+    raw count, defeating the gap targeting. Apps below the audience floor get no
+    boost — too small to prove a market."""
+    n = _installs_to_int(installs)
+    if n < config.GAP_MIN_AUDIENCE:
+        return 0.0
+    a = _avg_to_float(avg)
+    a = a if a is not None else 5.0
+    return math.log10(n) * max(0.0, 5.0 - a)
+
+
+def _is_underserved(app):
+    a = _avg_to_float(app.get("avg"))
+    return (_installs_to_int(app.get("installs")) >= config.GAP_MIN_AUDIENCE
+            and a is not None and a <= config.GAP_RATING_CEILING)
 
 
 def _find_apps(term, country, limit):
@@ -44,6 +80,8 @@ def _market_tag(app):
             parts.append(f"{float(app['avg']):.1f}★ avg")
         except (TypeError, ValueError):
             pass
+    if _is_underserved(app):
+        parts.append("UNDERSERVED")
     return ", ".join(parts)
 
 
@@ -82,6 +120,10 @@ def scrape(search_terms=None, apps_per_term=None, reviews_per_app=None,
             log.warning("Play Store search failed ('%s'): %s", term, e)
             continue
 
+        # Prioritise underserved markets (big install base, low rating).
+        apps.sort(key=lambda a: _gap_score(a.get("installs"), a.get("avg")),
+                  reverse=True)
+
         for app in apps:
             app_id, app_name = app["id"], app["name"]
             if app_id in seen_apps:
@@ -113,6 +155,8 @@ def scrape(search_terms=None, apps_per_term=None, reviews_per_app=None,
                     "source": "playstore",
                     "url": url,
                     "content": content,
+                    "category": term,       # for category-pain synthesis
+                    "app": app_name,
                 })
                 kept += 1
                 if kept >= keep_n:

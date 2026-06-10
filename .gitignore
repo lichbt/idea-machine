@@ -10,3 +10,6 @@ venv/
 idea_machine.lock
 .DS_Store
 reports/
+*.db-shm
+*.db-wal
+.claude/

@@ -68,15 +68,20 @@ def _cli_present():
 
 
 def _complete_via_cli(prompt, system, model):
-    """One-shot completion via `claude -p`. Returns text or raises BackendError."""
-    cmd = [config.CLAUDE_CLI_BIN, "-p", prompt, "--output-format", "text"]
+    """One-shot completion via `claude -p`. The prompt is piped via STDIN rather
+    than passed as an argv argument: a large prompt (e.g. a synthesis loaded with
+    prior-art apps + reviews) can exceed the OS argument-length limit, which makes
+    the CLI fail every time on exactly the big ideas. Stdin has no such limit.
+    Returns text or raises BackendError."""
+    cmd = [config.CLAUDE_CLI_BIN, "-p", "--output-format", "text"]
     if model:
         cmd += ["--model", model]
     if system:
         cmd += ["--append-system-prompt", system]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=config.CLAUDE_CLI_TIMEOUT,
+            cmd, input=prompt, capture_output=True, text=True,
+            timeout=config.CLAUDE_CLI_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise BackendError(f"Claude CLI invocation failed: {e}")
@@ -138,7 +143,10 @@ def _complete_via_openai(settings, prompt, system, max_tokens):
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    body = {"model": model, "messages": messages, "stream": False}
+    # Stream so the gateway emits SSE chunks as it generates: the read timeout
+    # then bounds the gap *between* chunks rather than total generation time, so
+    # a slow/large synthesis won't trip a single long wait-for-first-byte.
+    body = {"model": model, "messages": messages, "stream": True}
     if max_tokens:
         body["max_tokens"] = max_tokens
     url = base_url.rstrip("/") + "/chat/completions"
@@ -150,7 +158,9 @@ def _complete_via_openai(settings, prompt, system, max_tokens):
                 "Content-Type": "application/json",
             },
             json=body,
-            timeout=config.CLAUDE_CLI_TIMEOUT,
+            # (connect, read): generous read budget per chunk, dedicated knob.
+            timeout=(10, config.LLM_HTTP_TIMEOUT),
+            stream=True,
         )
         resp.raise_for_status()
         content = _extract_content(resp)

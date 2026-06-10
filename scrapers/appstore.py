@@ -8,6 +8,7 @@ Resilient by design: a failure on one term/app is logged and skipped — never
 raises, so the pipeline continues with other sources.
 """
 import logging
+import math
 
 import requests
 
@@ -46,9 +47,29 @@ def _find_apps(term, country, limit):
     return apps
 
 
+def _gap_score(ratings, avg):
+    """Rank apps by 'big market, failing incumbent'. A proven audience (rating
+    COUNT past the floor) combined with a LOW average rating (users dissatisfied)
+    = a real gap. The audience term is LOG-scaled so dissatisfaction dominates:
+    otherwise a beloved 4.7★ leader with millions of ratings would always outrank
+    a failing 3.0★ incumbent purely on raw count, defeating the gap targeting.
+    Apps below the audience floor get no boost — too small to prove a market."""
+    if not ratings or ratings < config.GAP_MIN_AUDIENCE:
+        return 0.0
+    a = avg if isinstance(avg, (int, float)) else 5.0
+    return math.log10(ratings) * max(0.0, 5.0 - a)
+
+
+def _is_underserved(app):
+    return (app.get("ratings") and app["ratings"] >= config.GAP_MIN_AUDIENCE
+            and isinstance(app.get("avg"), (int, float))
+            and app["avg"] <= config.GAP_RATING_CEILING)
+
+
 def _market_tag(app):
     """A compact market-size line so the validator/SWOT can gauge demand: an app
-    with many ratings = a large, validated market."""
+    with many ratings = a large, validated market. Flags UNDERSERVED when a big
+    audience is paired with a low rating (a gap worth attacking)."""
     parts = []
     if app.get("ratings") is not None:
         parts.append(f"{app['ratings']:,} ratings")
@@ -56,6 +77,8 @@ def _market_tag(app):
         parts.append(f"{app['avg']:.1f}★ avg")
     if app.get("price"):
         parts.append(app["price"])
+    if _is_underserved(app):
+        parts.append("UNDERSERVED")
     return ", ".join(parts)
 
 
@@ -66,8 +89,12 @@ def _app_reviews(app_id, country):
         timeout=20,
     )
     resp.raise_for_status()
-    # First entry is feed metadata, not a review; entries may be absent.
-    return resp.json().get("feed", {}).get("entry", []) or []
+    # entries may be absent; Apple also returns a single dict (not a list) when an
+    # app has exactly one review — normalise that to a list so callers can iterate.
+    entries = resp.json().get("feed", {}).get("entry", []) or []
+    if isinstance(entries, dict):
+        entries = [entries]
+    return entries
 
 
 def scrape(search_terms=None, apps_per_term=None, reviews_per_app=None,
@@ -87,6 +114,10 @@ def scrape(search_terms=None, apps_per_term=None, reviews_per_app=None,
         except Exception as e:
             log.warning("App Store search failed ('%s'): %s", term, e)
             continue
+
+        # Prioritise underserved markets (big audience, low rating) over leaders.
+        apps.sort(key=lambda a: _gap_score(a.get("ratings"), a.get("avg")),
+                  reverse=True)
 
         for app in apps:
             app_id, app_name = app["id"], app["name"]
@@ -121,6 +152,8 @@ def scrape(search_terms=None, apps_per_term=None, reviews_per_app=None,
                     "source": "appstore",
                     "url": url,
                     "content": content,
+                    "category": term,       # for category-pain synthesis
+                    "app": app_name,
                 })
                 kept += 1
                 if kept >= reviews_per_app:
