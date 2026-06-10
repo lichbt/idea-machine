@@ -58,15 +58,14 @@
   <span class="badge">local-first · open source · zero signup</span>
 
   <h1>Charles Proxy for your <em>AI tool calls</em></h1>
-  <p class="sub">MCPScope intercepts every MCP tool invocation locally — watch your
-  agent's calls live, inspect payloads, replay bugs offline. Free forever, nothing
-  leaves your machine.</p>
+  <p class="sub">MCPScope sits between your agent and its MCP servers and records what
+  your <strong>real agent</strong> actually does — live feed, history that survives
+  restarts, offline replay. Not a test harness. Free forever, nothing leaves your
+  machine.</p>
   <span class="pip">$ pip install mcpscope &nbsp;<span class="m"># coming soon</span></span>
 
-  <!-- ════ WAITLIST FORM ════
-       Replace YOUR_FORM_ID with a real Formspree form id (formspree.io, free tier),
-       or swap the whole <form> for a Tally/Buttondown embed. -->
-  <form action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+  <!-- Waitlist: Formspree form "MCPScope Waitlist" (created 2026-06-10) -->
+  <form action="https://formspree.io/f/mqeollzo" method="POST">
     <input type="email" name="email" required placeholder="you@example.com">
     <button type="submit">Get notified at launch →</button>
   </form>
@@ -85,23 +84,27 @@
   </div>
 
   <!-- ════ THE THREE GAPS ════
-       Confirm these against the Inspector audit (Day 1 AM) before publishing. -->
+       Audit-verified 2026-06-10. Each card claims what a connect-and-test client
+       (official Inspector, incl. V2's new session persistence/replay; MCPJam)
+       architecturally does NOT do: real agent, cross-session, real traffic. -->
   <div class="feats">
     <div class="feat">
-      <h3>Watch a live agent session</h3>
-      <p>The official Inspector tests servers by hand. MCPScope passively records a
-      <strong>running agent</strong> — Claude Desktop mid-conversation — with zero
-      config changes.</p>
+      <h3>Watch your real agent — live</h3>
+      <p>Inspectors test servers with <em>their own</em> client, by hand. MCPScope
+      passively records a <strong>running agent</strong> — Claude Desktop
+      mid-conversation — with zero config changes to either side.</p>
     </div>
     <div class="feat">
-      <h3>History you can search &amp; diff</h3>
-      <p>Every call lands in local SQLite. Filter by tool, status, or payload text;
-      diff call N against N−1 to see exactly what changed.</p>
+      <h3>History that outlives the session</h3>
+      <p>Test-tool history dies when the window closes. MCPScope keeps
+      <strong>every call from every session</strong> in local SQLite — search,
+      filter, and diff across days of runs, not one tab's lifetime.</p>
     </div>
     <div class="feat">
-      <h3>Replay bugs offline</h3>
-      <p>Re-execute any captured call against the live server, or stub saved
-      responses to reproduce a failure deterministically — even in CI.</p>
+      <h3>Replay real traffic, offline</h3>
+      <p>Re-issue the <strong>actual requests your agent made</strong> — not
+      hand-crafted test calls. Stub saved responses to reproduce yesterday's
+      failure deterministically, even in CI.</p>
     </div>
   </div>
 

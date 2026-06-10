@@ -13,3 +13,4 @@ reports/
 *.db-shm
 *.db-wal
 .claude/
+.wrangler/
