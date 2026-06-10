@@ -103,3 +103,20 @@ v0.22.0; v2 is moving fast behind it. Consequences:
 Next: deploy the landing page + run the Day-2 survey (manual). The two strongest
 landing-page claims, verified: "watch a live agent session" and "history that
 survives a restart".
+
+## MCPJam deep-estimate + market sizing (2026-06-10, API data)
+
+| Metric | Official Inspector | MCPJam |
+|---|---|---|
+| npm downloads / month | **891,237** | 16,305 |
+| GitHub stars (age) | 10,042 (20 mo) | 2,007 (12.5 mo) |
+| Commit velocity (30d) | active (V2 WG) | **100+ commits** (funded-team pace) |
+| Building the live-attach wedge? | ❌ (architecture + V2 scope) | ❌ (zero issues/PRs mention proxy/observe/live traffic) |
+
+- **Market size, directly measured:** ~890K monthly installs of the category-defining
+  inspection tool = a large, real, growing dev pool. MCPJam at 16K/mo proves a second
+  tool can coexist.
+- **Threat read:** both incumbents are fast but BOTH are heads-down on the
+  test-harness paradigm; neither has the wedge on any public roadmap.
+- **G0 competitive rows: decisively PASSED.** Demand rows (signups/replies) pending —
+  treated as a week-1 build checkpoint per the conditional-GO decision.
