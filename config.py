@@ -220,6 +220,14 @@ ECOSYSTEM_GAP_TERMS = [              # what every young ecosystem eventually nee
 ]
 ECOSYSTEM_GAP_SATURATED_STARS = 300  # a gap tool above this = gap already served
 ECOSYSTEM_SIGNALS_PER_WAVE = 2       # max pain signals emitted per wave
+# Commercial-saturation web probe: GitHub repo counts miss funded SaaS incumbents
+# (LangSmith/Datadog don't show up as "<ecosystem> monitoring" repos — learned the
+# hard way: first ecosystem batch was 5/5 SWOT-KILLed on commercial competition).
+# For each GitHub-unserved gap, a web search feeds the commercial landscape to the
+# synthesis LLM, which skips gaps already owned by established products. Costs up
+# to ECOSYSTEM_TOP_WAVES x len(ECOSYSTEM_GAP_TERMS) Serper/Brave queries per run.
+ECOSYSTEM_WEB_PROBE = os.getenv("ECOSYSTEM_WEB_PROBE", "true").lower() == "true"
+ECOSYSTEM_WEB_RESULTS = 5            # search results per gap fed to the LLM
 
 # Trustpilot: best-effort B2B/SaaS review scraping for category complaints.
 # Anti-bot protected — frequently returns nothing; degrades gracefully (logs and

@@ -31,6 +31,7 @@ import requests
 
 import config
 from utils.claude_caller import call_json
+from utils.search import web_search
 
 log = logging.getLogger(__name__)
 
@@ -166,10 +167,25 @@ def classify_gap(total_count, top_stars, saturated_stars=None):
     return total_count < 5 or top_stars < saturated_stars
 
 
+def _probe_web(name, term):
+    """Commercial landscape for a gap — GitHub repo counts miss funded SaaS
+    incumbents entirely. Returns [{title, snippet}] or None on any failure
+    (no key, quota, network) so the gap degrades to GitHub-only evidence."""
+    try:
+        hits = web_search(f"{name} {term} tool", num=config.ECOSYSTEM_WEB_RESULTS)
+        return [{"title": (h.get("title") or "")[:120],
+                 "snippet": (h.get("snippet") or "")[:200]} for h in hits] or None
+    except Exception as e:  # noqa: BLE001 — probe is best-effort
+        log.warning("Web probe failed (%s / %s): %s", name, term, e)
+        return None
+
+
 def _probe_gaps(wave, gap_terms=None):
     """For each tooling category, how served is it already? Returns
-    {term: {count, top_stars, top_repo, unserved}}; probe failures are skipped
-    (absence of evidence is NOT treated as an unserved gap)."""
+    {term: {count, top_stars, top_repo, unserved[, web]}}; probe failures are
+    skipped (absence of evidence is NOT treated as an unserved gap). For
+    GitHub-unserved gaps, a web search adds the COMMERCIAL landscape — the
+    synthesis LLM uses it to drop gaps already owned by funded products."""
     gap_terms = gap_terms or config.ECOSYSTEM_GAP_TERMS
     name = _short_name(wave["full_name"])
     probes = {}
@@ -189,12 +205,17 @@ def _probe_gaps(wave, gap_terms=None):
             continue
         items = data.get("items", [])
         top_stars = (items[0].get("stargazers_count") or 0) if items else 0
-        probes[term] = {
+        probe = {
             "count": data.get("total_count", 0),
             "top_stars": top_stars,
             "top_repo": items[0].get("full_name") if items else None,
             "unserved": classify_gap(data.get("total_count", 0), top_stars),
         }
+        if probe["unserved"] and config.ECOSYSTEM_WEB_PROBE:
+            web = _probe_web(name, term)
+            if web:
+                probe["web"] = web
+        probes[term] = probe
     return probes
 
 
@@ -214,10 +235,14 @@ def _synthesize_signals(waves, per_wave=None):
         unserved = {t: p for t, p in (w.get("gaps") or {}).items() if p["unserved"]}
         if not unserved:
             continue
-        gap_lines = "\n".join(
-            f"  - {t}: {p['count']} repos exist, strongest ★{p['top_stars']}"
-            f"{' (' + p['top_repo'] + ')' if p['top_repo'] else ''}"
-            for t, p in unserved.items())
+        gap_lines = []
+        for t, p in unserved.items():
+            line = (f"  - {t}: {p['count']} repos exist, strongest ★{p['top_stars']}"
+                    f"{' (' + p['top_repo'] + ')' if p['top_repo'] else ''}")
+            for h in p.get("web") or []:
+                line += f"\n      web: {h['title']} — {h['snippet']}"
+            gap_lines.append(line)
+        gap_lines = "\n".join(gap_lines)
         blocks.append(
             f"ECOSYSTEM: {w['full_name']} (★{w['stars']}, {w['velocity']} stars/day,"
             f" {w['age_days']} days old)\n{w['description']}\n"
@@ -225,13 +250,22 @@ def _synthesize_signals(waves, per_wave=None):
     if not blocks:
         return []
 
-    prompt = f"""Fast-growing developer ecosystems and their unserved tooling gaps:
+    prompt = f"""Fast-growing developer ecosystems and their unserved tooling gaps.
+Each gap shows GitHub evidence (repo counts) and, where available, "web:" lines —
+the COMMERCIAL landscape from a web search.
 
 {chr(10).join(blocks)}
 
 For each ecosystem, write up to {per_wave} pain statements (3-5 sentences each) for
-the MOST promising gaps — the pain a developer in that ecosystem hits because the
-tooling doesn't exist. Name the ecosystem explicitly and cite the growth evidence.
+the MOST promising gaps. Rules:
+- SKIP any gap whose web evidence shows established commercial or funded products
+  already covering it (a generic platform like Datadog/LangSmith counts if its
+  coverage plausibly extends to this gap). No GitHub repo does NOT mean unserved.
+- For each gap you keep, the pain must imply a SPECIFIC WEDGE — what an
+  ecosystem-native tool does that generic incumbents structurally won't
+  (local-first, protocol-specific, zero-config, free for individuals).
+- Name the ecosystem explicitly and cite the growth evidence.
+Returning fewer or zero signals is correct when the evidence is against you.
 
 Return JSON: {{"signals": [{{"ecosystem": "owner/name", "gap": "<term>",
 "pain": "<statement>"}}, ...]}}"""

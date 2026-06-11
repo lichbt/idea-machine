@@ -119,6 +119,39 @@ def test_select_platforms_heuristic_on_llm_failure(monkeypatch):
     assert [w["full_name"] for w in picked] == ["a/proto"]  # platform-worded only
 
 
+# --- _probe_web ------------------------------------------------------------
+
+def test_probe_web_shapes_and_truncates(monkeypatch):
+    monkeypatch.setattr(ecosystem, "web_search", lambda q, num: [
+        {"title": "T" * 300, "link": "u", "snippet": "S" * 300}])
+    hits = ecosystem._probe_web("proto", "monitoring")
+    assert len(hits) == 1
+    assert len(hits[0]["title"]) == 120 and len(hits[0]["snippet"]) == 200
+
+
+def test_probe_web_failure_returns_none(monkeypatch):
+    def boom(q, num):
+        raise RuntimeError("quota")
+    monkeypatch.setattr(ecosystem, "web_search", boom)
+    assert ecosystem._probe_web("proto", "monitoring") is None
+
+
+def test_probe_gaps_adds_web_only_for_unserved(monkeypatch):
+    served = {"total_count": 100,
+              "items": [{"full_name": "big/tool", "stargazers_count": 9000}]}
+    unserved = {"total_count": 1,
+                "items": [{"full_name": "x/y", "stargazers_count": 5}]}
+    seq = iter([FakeResp(unserved), FakeResp(served)])
+    monkeypatch.setattr(ecosystem.requests, "get", lambda *a, **k: next(seq))
+    monkeypatch.setattr(ecosystem, "_throttle", lambda: None)
+    monkeypatch.setattr(ecosystem, "web_search", lambda q, num: [
+        {"title": "LangSmith", "link": "u", "snippet": "funded SaaS"}])
+    wave = {"full_name": "a/proto"}
+    probes = ecosystem._probe_gaps(wave, gap_terms=["monitoring", "testing"])
+    assert "web" in probes["monitoring"]          # unserved -> web probed
+    assert "web" not in probes["testing"]         # served -> no web spend
+
+
 # --- _synthesize_signals -------------------------------------------------
 
 def _wave_with_gaps():
@@ -146,6 +179,21 @@ def test_synthesize_signals_shapes_output(monkeypatch):
     assert s["app"] == "a/proto"
     assert s["content"].startswith("[a/proto ecosystem — debugger inspector]")
     assert ecosystem._age_days(s["created_at"]) == 1  # stamped "now"
+
+
+def test_synthesize_prompt_includes_web_evidence(monkeypatch):
+    captured = {}
+
+    def fake_call(prompt, system=None, **kw):
+        captured["prompt"] = prompt
+        return {"signals": []}
+    monkeypatch.setattr(ecosystem, "call_json", fake_call)
+    wave = _wave_with_gaps()
+    wave["gaps"]["debugger inspector"]["web"] = [
+        {"title": "AcmeTrace — agent debugging SaaS", "snippet": "Series A"}]
+    ecosystem._synthesize_signals([wave])
+    assert "AcmeTrace" in captured["prompt"]
+    assert "SKIP any gap" in captured["prompt"]
 
 
 def test_synthesize_skips_llm_when_no_unserved_gaps(monkeypatch):
