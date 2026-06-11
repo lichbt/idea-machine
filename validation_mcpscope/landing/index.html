@@ -62,7 +62,7 @@
   your <strong>real agent</strong> actually does — live feed, history that survives
   restarts, offline replay. Not a test harness. Free forever, nothing leaves your
   machine.</p>
-  <span class="pip">$ pip install mcpscope &nbsp;<span class="m"># coming soon</span></span>
+  <span class="pip">$ pip install mcp-scope &nbsp;<span class="m"># v0.1.0</span></span>
 
   <!-- Waitlist: Formspree form "MCPScope Waitlist" (created 2026-06-10) -->
   <form action="https://formspree.io/f/mqeollzo" method="POST">
@@ -71,17 +71,11 @@
   </form>
   <p class="fine">No spam — one email when it ships, one if the beta opens early.</p>
 
-  <div class="term" aria-hidden="true">
-    <div class="tbar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span></div>
-    <div class="tbody"><span class="m">$</span> mcpscope run --stdio "npx mcp-server-filesystem ~/projects"
+  <!-- real recording: attach → live agent traffic in the TUI → restart → history persists -->
+  <img class="demo" src="demo.gif" width="900"
+       alt="mcpscope demo: attach to Claude Desktop, watch live tool calls in the TUI, quit and reopen — history persists"
+       style="max-width:100%;border-radius:10px;margin:24px 0;box-shadow:0 8px 40px rgba(0,0,0,.5)">
 
-<span class="c">┌ MCPScope · live · session #42 ─────────────────────────────┐</span>
-<span class="g"> ✓ 14:02:11  read_file        12ms   {"path":"src/app.py"}     </span>
-<span class="g"> ✓ 14:02:13  list_directory    4ms   {"path":"src/"}           </span>
-<span class="y"> ⚠ 14:02:15  search_files    842ms   {"pattern":"TODO"}        </span>
-<span class="r"> ✗ 14:02:18  write_file      ERROR   EACCES: permission denied </span>
-<span class="c">└ 47 calls · 1 error · p95 120ms · [/] filter  [d] diff  [r] replay ┘</span></div>
-  </div>
 
   <!-- ════ THE THREE GAPS ════
        Audit-verified 2026-06-10. Each card claims what a connect-and-test client
