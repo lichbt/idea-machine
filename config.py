@@ -204,6 +204,23 @@ GITHUB_CATEGORY_TERMS = [
 GITHUB_ISSUES_PER_CATEGORY = 30      # fetched per category (sorted by reactions)
 GITHUB_MAX_ISSUES_PER_REPO = 3       # cap per repo so one mega-repo can't dominate
 
+# Ecosystem-wave scout ("picks & shovels"): demand-FIRST discovery. Finds
+# fast-growing platforms (protocols/SDKs/frameworks) on GitHub by star VELOCITY,
+# probes which standard tooling categories are still unserved around each, and
+# synthesizes those gaps into pain-style signals. The machine's only winner
+# (MCPScope) was this archetype, found by accident — this systematizes it.
+ECOSYSTEM_MAX_AGE_DAYS = 540         # only "young" repos (~18 mo) count as waves
+ECOSYSTEM_MIN_STARS = 800            # floor before velocity ranking applies
+ECOSYSTEM_CANDIDATES = 30            # velocity-ranked repos fed to the LLM filter
+ECOSYSTEM_TOP_WAVES = 3              # waves whose tooling gaps get probed
+ECOSYSTEM_GAP_TERMS = [              # what every young ecosystem eventually needs
+    "debugger inspector", "testing framework", "monitoring observability",
+    "registry directory", "analytics", "deployment hosting",
+    "security scanner", "migration tool",
+]
+ECOSYSTEM_GAP_SATURATED_STARS = 300  # a gap tool above this = gap already served
+ECOSYSTEM_SIGNALS_PER_WAVE = 2       # max pain signals emitted per wave
+
 # Trustpilot: best-effort B2B/SaaS review scraping for category complaints.
 # Anti-bot protected — frequently returns nothing; degrades gracefully (logs and
 # skips, never raises). Treated as a bonus source, not a dependency.

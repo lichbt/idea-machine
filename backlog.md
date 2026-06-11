@@ -412,3 +412,54 @@ First test suite — **pytest, Core + DB scope, 44 tests, ~0.3s, no LLM/network.
 - research, unsynthesized (→ `--synthesize`): **3**
 - analyses, unideated (→ `--ideate`): **3**
 - Generated ideas so far: ~24 (the duplicate-heavy batch that motivated §5).
+
+---
+
+## 11. MCPScope build hand-off (2026-06-10)
+
+- Decision: **CONDITIONAL GO** — Phase 2 (4-week MVP) active; Gate W1 = day-7 abort
+  check. See `reports/action_plan_mcpscope.md`.
+- **`reports/mcpscope_build_plan.md`** = self-contained implementation plan, written to
+  be copied into a NEW repo as `PLAN.md` and executed by a fresh Claude instance
+  (wedge invariants, schema, week-by-week tasks + acceptance criteria, Gate W1 inline).
+  The build happens OUTSIDE this repo; this repo stays the idea machine + validation log.
+
+---
+
+## 12. Ecosystem-wave scout — discovery beyond pain mining (2026-06-11)
+
+**Why:** funnel audit showed pain mining finds *real* pains that SWOT correctly
+kills for structural reasons (59 KILL / 27 CAUTION / 0 PROCEED at SWOT level;
+kill reasons ≈ "pain real BUT hyper-competitive / users won't pay / no
+distribution"). 58% of signals came from consumer app stores → 0 winners. The
+single winner (MCPScope, judge 72 PROCEED) was a different archetype: an
+*emerging-ecosystem tooling gap*, found by accident via one HN post.
+
+**What:** `scrapers/ecosystem.py` generates that archetype on purpose
+(demand-first, "picks & shovels"):
+1. **Wave detection** — GitHub repo search (free): repos < `ECOSYSTEM_MAX_AGE_DAYS`
+   (540) with ≥ `ECOSYSTEM_MIN_STARS` (800), ranked by star **velocity**
+   (stars/day).
+2. **Platform filter** — one LLM call keeps platform-shaped repos (things devs
+   build ON); keyword heuristic fallback if the LLM fails.
+3. **Gap probe + synthesis** — per top wave (`ECOSYSTEM_TOP_WAVES`=3), GitHub
+   search per `ECOSYSTEM_GAP_TERMS` category (debugger/testing/monitoring/
+   registry/analytics/deploy/security/migration); `classify_gap`: <5 repos OR
+   strongest < `ECOSYSTEM_GAP_SATURATED_STARS` (300) ⇒ unserved. One batched
+   LLM call writes pain-style signals citing the growth evidence.
+
+**Wiring:** registered as source `"ecosystem"` in `agents/scout.py:_SCRAPERS`
+(runs in every default scout). Signals carry `synthesized: True`; `_cluster()`
+now keeps synthesized singletons (their cross-mention evidence lives upstream —
+the cluster-size gate doesn't apply). Not touched by category-pain synthesis
+(source not in its `_UNIT` map). Throttles GitHub search 6.5s/req unauth,
+0.5s with `GITHUB_TOKEN`. Never raises; every phase degrades to `[]`/heuristic.
+
+**Tests:** `tests/test_ecosystem.py` — 17 offline tests (velocity ranking, gap
+classification, short-name resolution, LLM-failure fallbacks, end-to-end scrape
+with mocked network+LLM, scout cluster-gate bypass). Suite: **61 passed**.
+
+**Audit follow-ups not yet built** (next levers, in recommended order):
+money-flow mining (Upwork/Gumroad/template marketplaces — attacks the #1 kill
+reason), kill-reason feedback into scout ranking, source rebalance away from
+consumer stores, trend-velocity scoring from pain-memory history.

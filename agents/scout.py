@@ -15,6 +15,7 @@ from db.models import RawSignal, get_session
 from scrapers import (
     appstore,
     appsumo,
+    ecosystem,
     github,
     hackernews,
     playstore,
@@ -37,6 +38,7 @@ _SCRAPERS = {
     "appsumo": appsumo.scrape,
     "github": github.scrape,
     "trustpilot": trustpilot.scrape,
+    "ecosystem": ecosystem.scrape,
 }
 
 
@@ -115,6 +117,11 @@ def _cluster(signals, min_size):
                 assigned[j] = True
         rep = max(members, key=lambda k: len(signals[k]["content"]))
         if len(members) >= min_size:
+            representatives.append(signals[rep])
+        elif signals[rep].get("synthesized"):
+            # Deliberately synthesized signals (ecosystem gaps) are single by
+            # construction — the cross-mention evidence lives upstream, not in
+            # this batch — so the cluster-size gate doesn't apply to them.
             representatives.append(signals[rep])
         else:
             # Novelty rescue: a rare but high-pain signal is exactly the kind of
