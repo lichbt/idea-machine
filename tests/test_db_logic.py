@@ -89,3 +89,57 @@ def test_research_selection_is_passing_unresearched_capped_ordered(temp_db, monk
     # the researched 100 and the not-passed 99 are excluded, and 40 falls off.
     assert len(picked) == config.MAX_SWOT_PER_RUN
     assert sorted(picked, reverse=True) == [90, 80, 70, 60, 50]
+
+
+def test_backlog_rows_lists_unresearched_passed_only(temp_db):
+    import run
+    from db.models import RawSignal, SwotResearch, ValidatedIdea, get_session
+
+    s = get_session()
+    sig = RawSignal(source="ecosystem", content="c", content_hash="hb1",
+                    status="processed")
+    s.add(sig); s.flush()
+    s.add(ValidatedIdea(passed=True, total_score=74, signal_id=sig.id,
+                        pain_point_title="Open gap"))
+    done = ValidatedIdea(passed=True, total_score=90,
+                         pain_point_title="Already researched")
+    s.add(done); s.flush()
+    s.add(SwotResearch(validated_idea_id=done.id, research_status="complete"))
+    s.add(ValidatedIdea(passed=False, total_score=99,
+                        pain_point_title="Failed validation"))
+    s.commit()
+    s.close()
+
+    rows = run.backlog_rows(limit=10)
+    assert [r["title"] for r in rows] == ["Open gap"]
+    assert rows[0]["source"] == "ecosystem"
+    assert rows[0]["score"] == 74
+
+
+def test_research_cli_accepts_explicit_ids(temp_db, monkeypatch):
+    from agents import swot_researcher
+    from db.models import SwotResearch, ValidatedIdea, get_session
+
+    s = get_session()
+    ids = []
+    for sc in [80, 70, 60]:
+        vi = ValidatedIdea(passed=True, total_score=sc,
+                           pain_point_title=f"p{sc}")
+        s.add(vi); s.flush()
+        ids.append(vi.id)
+    s.commit()
+    s.close()
+
+    picked = []
+
+    def fake_research(idea):
+        picked.append(idea.total_score)
+        ss = get_session()
+        row = SwotResearch(validated_idea_id=idea.id, research_status="complete")
+        ss.add(row); ss.commit(); rid = row.id; ss.close()
+        return rid
+
+    monkeypatch.setattr(swot_researcher, "research", fake_research)
+    # hand-pick the 80 and 60 scorers; the 70 must be untouched
+    swot_researcher.run(validated_idea_ids=[ids[0], ids[2]])
+    assert sorted(picked) == [60, 80]

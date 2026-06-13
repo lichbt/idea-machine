@@ -264,8 +264,8 @@ def _stage_validate():
     init_db(); validator.run()
 
 
-def _stage_research():
-    init_db(); swot_researcher.run()
+def _stage_research(ids=None):
+    init_db(); swot_researcher.run(validated_idea_ids=ids)
 
 
 def _stage_synthesize():
@@ -386,6 +386,40 @@ def status():
     print(f"  research, unsynthesized-> --synthesize: {c['unsynthesized']}")
     print(f"  analyses, unideated    -> --ideate   : {c['unideated']}")
     print()
+
+
+# ── --backlog ──────────────────────────────────────────────────────────────
+def backlog_rows(limit=20):
+    """Top-N passed, unresearched validated ideas (the SWOT candidates), best
+    score first — the same population --research draws from automatically."""
+    init_db()
+    session = get_session()
+    try:
+        rows = (session.query(ValidatedIdea, RawSignal.source)
+                .outerjoin(RawSignal, ValidatedIdea.signal_id == RawSignal.id)
+                .filter(ValidatedIdea.passed.is_(True))
+                .filter(~exists().where(
+                    SwotResearch.validated_idea_id == ValidatedIdea.id))
+                .order_by(ValidatedIdea.total_score.desc())
+                .limit(limit).all())
+        return [{"id": vi.id, "score": vi.total_score, "source": src or "?",
+                 "title": vi.pain_point_title or ""} for vi, src in rows]
+    finally:
+        session.close()
+
+
+def backlog(limit=20):
+    """Print the SWOT candidate backlog so you can hand-pick with --research ID."""
+    rows = backlog_rows(limit)
+    print(f"\n=== SWOT backlog: passed, unresearched ideas (top {limit}) ===\n")
+    if not rows:
+        print("  (empty — run --stage idea to discover more)\n")
+        return
+    for r in rows:
+        print(f"  {r['id']:>4}  {r['score']:>3}/100  [{r['source']:<10}] "
+              f"{r['title'][:70]}")
+    print(f"\nPick manually:  python run.py --research <ID> [<ID> ...]\n"
+          f"Or auto top-{config.MAX_SWOT_PER_RUN}: python run.py --research\n")
 
 
 # ── --funnel ───────────────────────────────────────────────────────────────
@@ -586,8 +620,14 @@ def main(argv=None):
                              "'swot'=research+synthesize+ideate+report")
     parser.add_argument("--scout", action="store_true", help="run Scout only")
     parser.add_argument("--validate", action="store_true", help="run Validator only")
-    parser.add_argument("--research", action="store_true",
-                        help="run SWOT Pass-1 on passing, unresearched ideas")
+    parser.add_argument("--research", nargs="*", type=int, default=None,
+                        metavar="ID",
+                        help="run SWOT Pass-1: no IDs = auto-pick the top "
+                             "unresearched ideas by score; or pass explicit "
+                             "validated-idea IDs to hand-pick (see --backlog)")
+    parser.add_argument("--backlog", nargs="?", const=20, type=int, metavar="N",
+                        help="list the top-N passed, unresearched ideas (SWOT "
+                             "candidates) with their IDs and exit (default 20)")
     parser.add_argument("--synthesize", action="store_true",
                         help="run SWOT Pass-2 on unsynthesized research")
     parser.add_argument("--ideate", action="store_true",
@@ -628,6 +668,9 @@ def main(argv=None):
         return 0
     if args.funnel:
         funnel()
+        return 0
+    if args.backlog is not None:
+        backlog(limit=args.backlog)
         return 0
     if args.report:
         init_db()
@@ -678,7 +721,8 @@ def main(argv=None):
 
     sources = ([s.strip() for s in args.sources.split(",") if s.strip()]
                if args.sources else None)
-    fine = (args.scout, args.validate, args.research, args.synthesize, args.ideate)
+    fine = (args.scout, args.validate, args.research is not None,
+            args.synthesize, args.ideate)
     if not (args.now or args.retry or args.schedule or args.print_only
             or args.stage or any(fine) or args.autopilot is not None):
         parser.print_help()
@@ -719,8 +763,8 @@ def main(argv=None):
                 _stage_scout(sources)
             if args.validate:
                 _stage_validate()
-            if args.research:
-                _stage_research()
+            if args.research is not None:
+                _stage_research(ids=args.research or None)
             if args.synthesize:
                 _stage_synthesize()
             if args.ideate:
